@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BMS GenKitez</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles to complement Tailwind */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* A very light gray background */
+        }
+        /* Custom transition for the side panel */
+        .side-panel {
+            transition: transform 0.3s ease-in-out;
+        }
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            font-size: 1.5rem;
+            color: #333;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+<div class="loading-overlay" id="loadingOverlay">Loading data...</div>
+
+<div class="flex h-screen bg-gray-100">
+    <!-- Sidebar -->
+    <aside class="w-64 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
+        <div class="h-16 flex items-center justify-center border-b border-gray-200">
+            <h2 class="text-2xl font-bold text-gray-800">BMS GenKitez<span class="text-blue-600">.</span></h2>
+        </div>
+        <nav class="flex-1 px-4 py-4">
+            <ul id="sidebar-nav" class="space-y-2">
+                <!-- Sidebar links will be injected here by JS -->
+            </ul>
+        </nav>
+        <!-- Logout Button -->
+        <div class="px-4 py-4 border-t border-gray-200">
+            <button onclick="logout()" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg font-medium transition-colors duration-200 text-gray-600 hover:bg-red-100 hover:text-red-700">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="17 16 22 12 17 8"/><line x1="22" x2="10" y1="12" y2="12"/></svg>
+                <span>Logout</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-6 md:p-8 overflow-y-auto" id="main-content">
+        <!-- Content will be rendered here by JS -->
+    </main>
+</div>
+
+<!-- Slide-in Side Panel for Forms -->
+<div id="sidePanel" class="side-panel fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl transform translate-x-full z-50">
+    <div class="p-6 h-full flex flex-col">
+        <div class="flex justify-between items-center mb-6">
+            <h3 id="formTitle" class="text-xl font-semibold"></h3>
+            <button onclick="closePanel()" class="text-gray-500 hover:text-gray-800 p-1 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <form id="entryForm" class="flex-1 space-y-4"></form>
+    </div>
+</div>
+
+<!-- Custom Confirmation Modal -->
+<div id="confirmModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm mx-4">
+        <h3 class="text-lg font-medium text-gray-900" id="confirmModalTitle">Are you sure?</h3>
+        <p class="mt-2 text-sm text-gray-500" id="confirmModalText">This action cannot be undone.</p>
+        <div class="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
+            <button id="confirmModalButton" type="button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:col-start-2 sm:text-sm">
+                Delete
+            </button>
+            <button id="cancelModalButton" type="button" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:col-start-1 sm:text-sm">
+                Cancel
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- CONFIGURATION ---
+// IMPORTANT: Replace with the actual URL to your PHP API endpoint
+const BASE_API_URL = 'https://roy.genkitez.top/api/data.php'; // Updated to your provided URL
+
+// --- DATA MANAGEMENT ---
+// This object will hold data fetched from the server.
+let data = {
+    clients: [],
+    income: [],
+    expenses: [],
+    tasks: [],
+    employees: [],
+};
+
+// --- API UTILITY FUNCTIONS ---
+async function fetchJsonData(type) {
+    showLoading();
+    try {
+        const response = await fetch(`${BASE_API_URL}?type=${type}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const jsonData = await response.json();
+        data[type] = jsonData; // Update the global data object
+        hideLoading();
+        return jsonData;
+    } catch (error) {
+        console.error(`Error fetching ${type} data:`, error);
+        hideLoading();
+        // Optionally show a user-friendly error message
+        return []; // Return empty array on error
+    }
+}
+
+async function sendJsonData(type, method, entry, id = null) { // Renamed index to id for clarity
+    showLoading();
+    let url = `${BASE_API_URL}?type=${type}`;
+    if (id !== null) {
+        // For update/delete, we now send the actual database ID
+        url += `&id=${id}`; // Changed 'index' to 'id'
+    }
+
+    try {
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(entry),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+        hideLoading();
+        return await response.json(); // PHP should return the updated data or success message
+    } catch (error) {
+        console.error(`Error sending ${type} data (${method}):`, error);
+        hideLoading();
+        // Optionally show a user-friendly error message
+        return { success: false, message: error.message };
+    }
+}
+
+async function deleteJsonEntry(type, id) { // Renamed index to id for clarity
+    showLoading();
+    try {
+        // Now sending the actual database ID
+        const response = await fetch(`${BASE_API_URL}?type=${type}&id=${id}`, { // Changed 'index' to 'id'
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+        hideLoading();
+        return await response.json(); // PHP should return success message
+    } catch (error) {
+        console.error(`Error deleting ${type} entry:`, error);
+        hideLoading();
+        // Optionally show a user-friendly error message
+        return { success: false, message: error.message };
+    }
+}
+
+// --- LOADING INDICATOR ---
+const loadingOverlay = document.getElementById('loadingOverlay');
+
+function showLoading() {
+    loadingOverlay.classList.remove('hidden');
+}
+
+function hideLoading() {
+    loadingOverlay.classList.add('hidden');
+}
+
+
+// --- DOM ELEMENTS ---
+const contentArea = document.getElementById("main-content");
+const sidePanel = document.getElementById("sidePanel");
+const form = document.getElementById("entryForm");
+const formTitleEl = document.getElementById("formTitle");
+const sidebarNav = document.getElementById("sidebar-nav");
+
+// --- CONFIRMATION MODAL ---
+const confirmModal = document.getElementById('confirmModal');
+const confirmModalButton = document.getElementById('confirmModalButton');
+const cancelModalButton = document.getElementById('cancelModalButton');
+let confirmCallback = null;
+
+function showConfirmModal(callback, title = 'Are you sure?', text = 'This action cannot be undone.') {
+    document.getElementById('confirmModalTitle').innerText = title;
+    document.getElementById('confirmModalText').innerText = text;
+    confirmModal.classList.remove('hidden');
+    confirmCallback = callback;
+}
+
+confirmModalButton.addEventListener('click', () => {
+    if (confirmCallback) {
+        confirmCallback();
+    }
+    confirmModal.classList.add('hidden');
+});
+
+cancelModalButton.addEventListener('click', () => {
+    confirmModal.classList.add('hidden');
+    confirmCallback = null;
+});
+
+
+// --- APP STATE ---
+let currentPage = "dashboard";
+let editItemId = null; // Changed from editIndex to editItemId
+let chartInstance = null;
+let currentSearchTerm = ''; // Global variable to store the current search term
+
+// --- ICONS (as SVG strings) ---
+const icons = {
+    dashboard: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>`,
+    clients: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+    income: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`,
+    expenses: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M15 12H9m6 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/><path d="M2 12h3m14 0h3M12 2v3m0 14v3"/></svg>`,
+    tasks: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 14h4"/><path d="m10 18 4-4"/></svg>`,
+    employees: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M17 18.5V14a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v4.5"/><circle cx="12" cy="7" r="3"/><path d="M2 22v-2a4 4 0 0 1 4-4h12a4 4 0 0 1 4 4v2"/></svg>`, // Using a new icon for employees
+    profile: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+    settings: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.04.04a2 2 0 0 1 0 2.83l-.04.04a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.04-.04a2 2 0 0 1 0-2.83l.04-.04a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    logout: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="17 16 22 12 17 8"/><line x1="22" x2="10" y1="12" y2="12"/></svg>`
+};
+
+// --- RENDER FUNCTIONS ---
+
+// Render Sidebar Navigation
+function renderSidebar() {
+    const pages = [
+        { key: 'dashboard', label: 'Dashboard' },
+        { key: 'clients', label: 'Clients' },
+        { key: 'employees', label: 'Employee List' },
+        { key: 'income', label: 'All Income' },
+        { key: 'expenses', label: 'All Expenses' },
+        { key: 'tasks', label: 'Tasks' },
+        { key: 'profile', label: 'Profile' }, // Added Profile
+        { key: 'settings', label: 'Settings' }, // Added Settings
+    ];
+    sidebarNav.innerHTML = pages.map(page => `
+        <li>
+            <a href="#" data-page="${page.key}" class="sidebar-link flex items-center space-x-3 px-3 py-2.5 rounded-lg font-medium transition-colors duration-200 ${currentPage === page.key ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}">
+                ${icons[page.key]}
+                <span>${page.label}</span>
+            </a>
+        </li>
+    `).join('');
+
+    document.querySelectorAll(".sidebar-link").forEach(link => {
+        link.addEventListener("click", e => {
+            e.preventDefault();
+            renderPage(link.getAttribute("data-page")); // Call renderPage without preserving search
+        });
+    });
+}
+
+// Render Recent Clients List (for Dashboard)
+function renderRecentClients() {
+    const recentClients = data.clients.slice(-5).reverse(); // Get last 5, newest first
+
+    let html = `
+        <div class="bg-white p-6 rounded-xl border border-gray-200">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold">Recent Clients</h3>
+                <a href="#" onclick="event.preventDefault(); renderPage('clients');" class="text-sm font-medium text-blue-600 hover:text-blue-800">View All</a>
+            </div>
+            <ul class="space-y-4">`;
+
+    if (recentClients.length === 0) {
+        html += `<li class="text-center text-sm text-gray-500 py-4">No clients added yet.</li>`;
+    } else {
+        recentClients.forEach(client => {
+            html += `
+                <li class="flex items-center space-x-4">
+                    <div class="flex-shrink-0 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                        <span class="text-blue-600 font-semibold">${client.name ? client.name.charAt(0).toUpperCase() : '?'}</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-gray-900 truncate">${client.name}</p>
+                        <p class="text-sm text-gray-500 truncate">${client.company || 'No company assigned'}</p>
+                    </div>
+                </li>`;
+        });
+    }
+
+    html += `</ul></div>`;
+    return html;
+}
+
+// Render Dashboard View
+function renderDashboard() {
+    const totalIncome = data.income.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    const totalExpense = data.expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    const totalClients = data.clients.length;
+    const tasksInProgress = data.tasks.filter(t => t.status === 'In Progress').length;
+
+    contentArea.innerHTML = `
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">Dashboard</h1>
+        </div>
+        
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <div class="bg-white p-6 rounded-xl border border-gray-200">
+                <p class="text-sm font-medium text-gray-500">Total Income</p>
+                <p class="text-3xl font-semibold text-gray-900 mt-1">৳${totalIncome.toLocaleString()}</p>
+            </div>
+            <div class="bg-white p-6 rounded-xl border border-gray-200">
+                <p class="text-sm font-medium text-gray-500">Total Expense</p>
+                <p class="text-3xl font-semibold text-gray-900 mt-1">৳${totalExpense.toLocaleString()}</p>
+            </div>
+            <div class="bg-white p-6 rounded-xl border border-gray-200">
+                <p class="text-sm font-medium text-gray-500">Total Clients</p>
+                <p class="text-3xl font-semibold text-gray-900 mt-1">${totalClients}</p>
+            </div>
+            <div class="bg-white p-6 rounded-xl border border-gray-200">
+                <p class="text-sm font-medium text-gray-500">Tasks In Progress</p>
+                <p class="text-3xl font-semibold text-gray-900 mt-1">${tasksInProgress}</p>
+            </div>
+        </div>
+
+        <!-- Chart and Tasks -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200">
+                <h3 class="text-lg font-semibold mb-4">Financial Overview</h3>
+                <div class="relative h-72">
+                    <canvas id="chartCanvas"></canvas>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-xl border border-gray-200" id="dashboard-tasks">
+                ${renderTaskList(7)}
+            </div>
+        </div>
+
+        <!-- Recent Clients -->
+        <div class="mt-6">
+            ${renderRecentClients()}
+        </div>
+    `;
+
+    // Destroy previous chart instance if it exists
+    if (chartInstance) {
+        chartInstance.destroy();
+    }
+
+    const ctx = document.getElementById("chartCanvas").getContext("2d");
+    chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Income', 'Expense'],
+            datasets: [{
+                label: 'Amount (৳)',
+                data: [totalIncome, totalExpense],
+                backgroundColor: ['rgba(59, 130, 246, 0.5)', 'rgba(239, 68, 68, 0.5)'],
+                borderColor: ['rgba(59, 130, 246, 1)', 'rgba(239, 68, 68, 1)'],
+                borderWidth: 1,
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+            },
+            scales: {
+                y: { 
+                    beginAtZero: true,
+                    grid: {
+                        color: '#e5e7eb'
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Render Task List (for Dashboard)
+function renderTaskList(filterDays = 7) {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0); // Normalize 'now' to start of today
+
+    const filtered = data.tasks.filter(task => {
+        if (!task.date) return false; 
+        const due = new Date(task.date); 
+        due.setHours(0, 0, 0, 0); // Normalize 'due' to start of its day
+
+        const diff = (due - now) / (1000 * 60 * 60 * 24); // Difference in days
+
+        if (filterDays === 0) { // "Today's Tasks"
+            return diff === 0;
+        } else { // Upcoming tasks within X days
+            return diff >= 0 && diff <= filterDays;
+        }
+    }).sort((a,b) => new Date(a.date) - new Date(b.date)); 
+
+    let html = `
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold">Upcoming Tasks</h3>
+            <select class="text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50" onchange="document.getElementById('dashboard-tasks').innerHTML = renderTaskList(parseInt(this.value))">
+                <option value="0" ${filterDays === 0 ? 'selected' : ''}>Today</option>
+                <option value="1" ${filterDays === 1 ? 'selected' : ''}>24 Hours</option>
+                <option value="7" ${filterDays === 7 ? 'selected' : ''}>7 Days</option>
+                <option value="30" ${filterDays === 30 ? 'selected' : ''}>30 Days</option>
+            </select>
+        </div>
+        <ul class="space-y-3">`;
+
+    if (filtered.length === 0) {
+        let message = `No upcoming tasks`;
+        if (filterDays === 0) message += ` for today.`;
+        else message += ` in the next ${filterDays} day(s).`;
+        html += `<li class="text-center text-sm text-gray-500 py-4">${message}</li>`;
+    } else {
+        filtered.forEach(task => {
+            const priorityColors = { High: 'bg-red-100 text-red-800', Mid: 'bg-yellow-100 text-yellow-800', Low: 'bg-green-100 text-green-800' };
+            html += `
+                <li class="p-3 bg-gray-50 rounded-lg">
+                    <p class="font-medium text-gray-800">${task.title}</p> 
+                    <div class="flex items-center justify-between text-xs text-gray-500 mt-1">
+                        <span>Due: ${task.date}</span> 
+                        <span class="px-2 py-0.5 rounded-full font-medium ${priorityColors[task.priority] || ''}">${task.priority}</span>
+                    </div>
+                </li>`;
+        });
+    }
+    html += `</ul>`;
+    return html;
+}
+
+// Function to handle search input and re-render the page
+function handleSearchInput(event, type) {
+    currentSearchTerm = event.target.value;
+    renderPage(type, true); // Re-render the current page, preserving search term
+}
+
+// Define a mapping for headers based on type
+const tableHeaders = {
+    clients: ["Name", "Phone Number", "Email", "Address", "Company"], 
+    income: ["Date", "Category", "Amount", "Description"], 
+    expenses: ["Date", "Category", "Amount", "Description"], 
+    tasks: ["Title", "Date", "Status", "Priority", "Description", "Assign"], 
+    employees: ["Name", "Phone Number", "Email", "DOB", "Address", "Position"] 
+};
+
+// Function to export table data to CSV
+function exportTableToCSV(type) {
+    const headers = tableHeaders[type]; // Get headers based on type
+    if (!headers) {
+        console.error("Headers not found for type:", type);
+        return;
+    }
+
+    let csv = headers.map(h => `"${h}"`).join(',') + '\n'; // CSV header row
+
+    const dataToExport = data[type];
+
+    dataToExport.forEach(item => {
+        const row = headers.map(h => {
+            let key = h.toLowerCase().replace(/ /g, '');
+            // Special handling for keys that don't directly match header names
+            if (type === "income" && h === "Category") key = "category"; 
+            if (type === "income" && h === "Description") key = "description";
+            if (type === "expenses" && h === "Category") key = "category";
+            if (type === "expenses" && h === "Description") key = "description";
+            if (type === "employees" && h === "DOB") key = "dob";
+            if (type === "employees" && h === "Phone Number") key = "phone"; 
+            if (type === "clients" && h === "Phone Number") key = "phone";
+            if (type === "clients" && h === "Address") key = "address";
+            if (type === "clients" && h === "Company") key = "company";
+            if (type === "tasks" && h === "Title") key = "title"; 
+            if (type === "tasks" && h === "Date") key = "date"; 
+            if (type === "tasks" && h === "Priority") key = "priority"; 
+            if (type === "tasks" && h === "Description") key = "description"; 
+            if (type === "tasks" && h === "Status") key = "status"; 
+
+            const value = item[key] || '';
+            // Escape double quotes by doubling them, then wrap in double quotes
+            return `"${String(value).replace(/"/g, '""')}"`;
+        }).join(',');
+        csv += row + '\n';
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `${type}_data.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+
+// Render Generic Table View
+function renderTable(type, headers) {
+    const typeName = type.slice(0, -1);
+    const title = type.charAt(0).toUpperCase() + type.slice(1);
+
+    let html = `
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">${title}</h1>
+            <div class="flex items-center space-x-4">
+                <input type="text" id="searchInput" placeholder="Search ${type}..."
+                       class="px-4 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       value="${currentSearchTerm}"
+                       onkeyup="handleSearchInput(event, '${type}')">
+                <button onclick="exportTableToCSV('${type}')" class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    Download CSV
+                </button>
+                <button onclick="openSidePanel('${type}')" class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    + Add ${typeName}
+                </button>
+            </div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        ${headers.map(h => `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${h}</th>`).join("")}
+                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">`;
+
+    let filteredData = data[type];
+    if (currentSearchTerm) {
+        const lowerCaseSearchTerm = currentSearchTerm.toLowerCase();
+        filteredData = data[type].filter(item => {
+            const relevantKeys = headers.map(h => {
+                let key = h.toLowerCase().replace(/ /g, '');
+                // Handle special key mappings
+                if (type === "income" && h === "Category") return "category"; 
+                if (type === "income" && h === "Description") return "description";
+                if (type === "expenses" && h === "Category") return "category";
+                if (type === "expenses" && h === "Description") return "description";
+                if (type === "employees" && h === "DOB") return "dob";
+                if (type === "employees" && h === "Phone Number") return "phone"; 
+                if (type === "clients" && h === "Phone Number") return "phone";
+                if (type === "clients" && h === "Address") return "address";
+                if (type === "clients" && h === "Company") return "company";
+                if (type === "tasks" && h === "Title") return "title"; 
+                if (type === "tasks" && h === "Date") return "date"; 
+                if (type === "tasks" && h === "Priority") return "priority"; 
+                if (type === "tasks" && h === "Description") return "description"; 
+                if (type === "tasks" && h === "Status") return "status"; 
+                return key;
+            }).filter(key => key); // Filter out any undefined/null keys
+
+            return relevantKeys.some(key => {
+                const value = item[key];
+                return typeof value === 'string' && value.toLowerCase().includes(lowerCaseSearchTerm);
+            });
+        });
+    }
+
+    if (filteredData.length === 0) {
+        html += `<tr><td colspan="${headers.length + 1}" class="text-center py-12 text-gray-500">No ${type} found.</td></tr>`;
+    } else {
+        filteredData.forEach((item, i) => {
+            html += `<tr>`;
+            headers.forEach(h => {
+                let key = h.toLowerCase().replace(/ /g, '');
+                // Special handling for keys that don't directly match header names
+                if (type === "income" && h === "Category") key = "category"; 
+                if (type === "income" && h === "Description") key = "description";
+                if (type === "expenses" && h === "Category") key = "category";
+                if (type === "expenses" && h === "Description") key = "description";
+                if (type === "employees" && h === "DOB") key = "dob";
+                if (type === "employees" && h === "Phone Number") key = "phone"; 
+                if (type === "clients" && h === "Phone Number") key = "phone";
+                if (type === "clients" && h === "Address") key = "address";
+                if (type === "clients" && h === "Company") key = "company";
+                if (type === "tasks" && h === "Title") key = "title"; 
+                if (type === "tasks" && h === "Date") key = "date"; 
+                if (type === "tasks" && h === "Priority") key = "priority"; 
+                if (type === "tasks" && h === "Description") key = "description"; 
+                if (type === "tasks" && h === "Status") key = 'status'; // Ensure status key is correct
+                
+                let value = item[key] || '-';
+                
+                // Special rendering for status/priority badges
+                if ((type === 'tasks' && key === 'status') || (type === 'tasks' && key === 'priority')) {
+                   const statusColors = {
+                        Pending: 'bg-gray-100 text-gray-800',
+                        'In Progress': 'bg-blue-100 text-blue-800',
+                        Paused: 'bg-yellow-100 text-yellow-800',
+                        Done: 'bg-green-100 text-green-800'
+                    };
+                    const priorityColors = { High: 'bg-red-100 text-red-800', Mid: 'bg-yellow-100 text-yellow-800', Low: 'bg-green-100 text-green-800' };
+                    const colors = key === 'status' ? statusColors : priorityColors;
+                    value = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${colors[value] || ''}">${value}</span>`;
+                }
+                
+                html += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${value}</td>`;
+            });
+
+            // Pass item.id directly to edit and delete functions
+            html += `<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                <button onclick="openSidePanel('${type}', '${item.id}')" class="text-blue-600 hover:text-blue-900">Edit</button>
+                <button onclick="deleteEntry('${type}', '${item.id}')" class="text-red-600 hover:text-red-900">Delete</button>`;
+            
+            if (type === "tasks") {
+                 html += `<div class="inline-flex rounded-md shadow-sm mt-2 md:mt-0 md:ml-2" role="group">
+                    <button title="Done" onclick="updateTaskStatus('${item.id}', 'Done')" class="px-2 py-1 text-xs font-medium text-gray-900 bg-white border border-gray-200 rounded-l-lg hover:bg-gray-100">✅</button>
+                    <button title="In Progress" onclick="updateTaskStatus('${item.id}', 'In Progress')" class="px-2 py-1 text-xs font-medium text-gray-900 bg-white border-t border-b border-gray-200 hover:bg-gray-100">🔄</button>
+                    <button title="Paused" onclick="updateTaskStatus('${item.id}', 'Paused')" class="px-2 py-1 text-xs font-medium text-gray-900 bg-white border border-gray-200 rounded-r-md hover:bg-gray-100">⏸️</button>
+                   </div>`;
+            }
+
+            html += `</td></tr>`;
+        });
+    }
+    html += `</tbody></table></div>`;
+    contentArea.innerHTML = html;
+}
+
+// Render Profile Page
+function renderProfilePage() {
+    contentArea.innerHTML = `
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">User Profile</h1>
+        </div>
+        <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 class="text-lg font-semibold mb-4">Your Information</h3>
+            <div class="space-y-4">
+                <p><strong class="font-medium">Name:</strong> John Doe (Placeholder)</p>
+                <p><strong class="font-medium">Email:</strong> john.doe@example.com (Placeholder)</p>
+                <p><strong class="font-medium">Role:</strong> Construction Manager (Placeholder)</p>
+                <p class="text-gray-500 text-sm">This is a placeholder profile page. In a real application, you would see and manage your user details here.</p>
+            </div>
+        </div>
+    `;
+}
+
+// Render Settings Page
+function renderSettingsPage() {
+    contentArea.innerHTML = `
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">Settings</h1>
+        </div>
+        <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 class="text-lg font-semibold mb-4">Application Settings</h3>
+            <div class="space-y-4">
+                <p><strong class="font-medium">Theme:</strong> Light (Default)</p>
+                <p><strong class="font-medium">Notifications:</strong> Enabled</p>
+                <p class="text-gray-500 text-sm">This is a placeholder settings page. You could add options for theme, notifications, data export, etc.</p>
+            </div>
+        </div>
+    `;
+}
+
+// --- SIDE PANEL & FORM LOGIC ---
+function openSidePanel(type, id = null) { // Changed index to id
+    sidePanel.classList.remove("translate-x-full");
+    form.innerHTML = "";
+    editItemId = id; // Store the ID for editing
+    const typeName = type.slice(0, -1);
+    formTitleEl.innerText = id === null ? `Add ${typeName}` : `Edit ${typeName}`;
+
+    const fields = {
+        clients: ["Name", "Phone Number", "Email", "Address", "Company"], 
+        income: ["Date", "Category", "Amount", "Description"], 
+        expenses: ["Date", "Category", "Amount", "Description"], 
+        tasks: ["Title", "Date", "Status", "Priority", "Description", "Assign"], 
+        employees: ["Name", "Phone Number", "Email", "DOB", "Address", "Position"] 
+    };
+
+    // Find the item to edit using its ID
+    let itemToEdit = null;
+    if (id !== null) {
+        itemToEdit = data[type].find(item => item.id === id);
+        if (!itemToEdit) {
+            console.error(`Item with ID ${id} not found for type ${type}.`);
+            closePanel();
+            return;
+        }
+    }
+
+    const inputClasses = "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50";
+    const labelClasses = "block text-sm font-medium text-gray-700";
+
+    fields[type].forEach(field => {
+        let name = field.toLowerCase().replace(/ /g, '');
+        // Special handling for keys that don't directly match header names
+        if (field === 'Phone Number') name = 'phone';
+        if (field === 'Due Date') name = 'duedate'; 
+        if (field === 'DOB') name = 'dob';
+        if (field === 'Position') name = 'position';
+        if (field === 'Address' && type === 'clients') name = 'address';
+        if (field === 'Company' && type === 'clients') name = 'company';
+        if (field === 'Category' && (type === 'income' || type === 'expenses')) name = 'category';
+        if (field === 'Description') name = 'description'; 
+        if (field === 'Title') name = 'title'; 
+        if (field === 'Date' && type === 'tasks') name = 'date'; 
+        if (field === 'Priority') name = 'priority'; 
+        if (field === 'Assign') name = 'assign'; 
+        if (field === 'Status' && type === 'tasks') name = 'status'; 
+
+        let value = itemToEdit ? (itemToEdit[name] || "") : ""; // Use itemToEdit for value
+        let inputFieldHTML = "";
+
+        const baseField = `
+            <div>
+                <label for="${name}" class="${labelClasses}">${field}</label>
+        `;
+
+        if (field === "Date" || field === "DOB") { 
+            inputFieldHTML = `${baseField}<input type="date" id="${name}" name="${name}" value="${value}" class="${inputClasses}" required /></div>`;
+        } else if (type === "expenses" && field === "Category") {
+            const options = ["Materials", "Labor", "Permits", "Rent", "Other"];
+            inputFieldHTML = `${baseField}<select id="${name}" name="${name}" class="${inputClasses}" required>${options.map(opt => `<option value="${opt}" ${value === opt ? "selected" : ""}>${opt}</option>`).join("")}</select></div>`;
+        } else if (type === "income" && field === "Category") {
+            const options = ["Client Payment", "Sales", "Deposit", "Other"];
+            inputFieldHTML = `${baseField}<select id="${name}" name="${name}" class="${inputClasses}" required>${options.map(opt => `<option value="${opt}" ${value === opt ? "selected" : ""}>${opt}</option>`).join("")}</select></div>`;
+        } else if (type === "tasks" && field === "Status") { 
+            const options = ["Pending", "In Progress", "Paused", "Done"];
+            inputFieldHTML = `${baseField}<select id="${name}" name="${name}" class="${inputClasses}" required>${options.map(opt => `<option value="${opt}" ${value === opt ? "selected" : ""}>${opt}</option>`).join("")}</select></div>`;
+        } else if (type === "tasks" && field === "Priority") {
+            const options = ["High", "Mid", "Low"];
+            inputFieldHTML = `${baseField}<select id="${name}" name="${name}" class="${inputClasses}" required>${options.map(opt => `<option value="${opt}" ${value === opt ? "selected" : ""}>${opt}</option>`).join("")}</select></div>`;
+        } else if (type === "tasks" && field === "Assign") {
+            const employeeNames = data.employees.map(emp => emp.name);
+            inputFieldHTML = `${baseField}<select id="${name}" name="${name}" class="${inputClasses}" required><option value="">-- Select Employee --</option>${employeeNames.map(empName => `<option value="${empName}" ${value === empName ? "selected" : ""}>${empName}</option>`).join("")}</select></div>`;
+        } else if (field === "Address" || field === "Description") { 
+            inputFieldHTML = `${baseField}<textarea id="${name}" name="${name}" rows="3" class="${inputClasses}" required>${value}</textarea></div>`;
+        }
+        else {
+            const inputType = field === 'Amount' ? 'number' : 'text';
+            const step = field === 'Amount' ? '0.01' : '';
+            inputFieldHTML = `${baseField}<input type="${inputType}" step="${step}" id="${name}" name="${name}" value="${value}" class="${inputClasses}" required /></div>`;
+        }
+        form.innerHTML += inputFieldHTML;
+    });
+
+    form.innerHTML += `<div class="pt-4">
+        <button type="submit" class="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Save</button>
+    </div>`;
+
+    form.onsubmit = async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const newEntry = {};
+        fields[type].forEach(field => {
+            let name = field.toLowerCase().replace(/ /g, '');
+            // Consistent key mapping for form submission
+            if (field === 'Phone Number') name = 'phone';
+            if (field === 'Due Date') name = 'duedate'; 
+            if (field === 'DOB') name = 'dob';
+            if (field === 'Position') name = 'position';
+            if (field === 'Address' && type === 'clients') name = 'address';
+            if (field === 'Company' && type === 'clients') name = 'company';
+            if (field === 'Category' && (type === 'income' || type === 'expenses')) name = 'category';
+            if (field === 'Description') name = 'description'; 
+            if (field === 'Title') name = 'title'; 
+            if (field === 'Date' && type === 'tasks') name = 'date'; 
+            if (field === 'Priority') name = 'priority'; 
+            if (field === 'Assign') name = 'assign'; 
+            if (field === 'Status' && type === 'tasks') name = 'status'; 
+            newEntry[name] = formData.get(name);
+        });
+
+        if (editItemId === null) { // Use editItemId
+            // Add new entry
+            await sendJsonData(type, 'POST', newEntry);
+        } else {
+            // Update existing entry
+            // Ensure the ID is part of the object sent for update
+            newEntry.id = editItemId; 
+            await sendJsonData(type, 'PUT', newEntry, editItemId); // Pass editItemId
+        }
+        await loadAllData(); // Reload all data after modification
+        renderPage(currentPage, true); // Preserve search term after saving
+        closePanel();
+    };
+}
+
+function closePanel() {
+    sidePanel.classList.add("translate-x-full");
+    form.innerHTML = "";
+    editItemId = null; // Reset editItemId
+}
+
+// --- DATA ACTIONS ---
+async function deleteEntry(type, id) { // Changed index to id
+    showConfirmModal(async () => {
+        await deleteJsonEntry(type, id); // Pass id
+        await loadAllData(); // Reload all data after deletion
+        renderPage(currentPage, true); // Preserve search term after deleting
+    });
+}
+
+async function updateTaskStatus(id, status) { // Changed index to id
+    // Find the task by its ID
+    const taskToUpdate = data.tasks.find(task => task.id === id);
+    if (!taskToUpdate) {
+        console.error(`Task with ID ${id} not found.`);
+        return;
+    }
+    const updatedTask = { ...taskToUpdate, status: status }; // Create a copy and update status
+    await sendJsonData('tasks', 'PUT', updatedTask, id); // Pass id
+    await loadAllData(); // Reload all data after modification
+
+    // Re-render the dashboard if the current page is dashboard, otherwise re-render the tasks page
+    if (currentPage === "dashboard") {
+        renderDashboard();
+    } else {
+        renderPage("tasks", true); // Preserve search term after updating task status
+    }
+}
+
+// --- LOGOUT FUNCTION ---
+function logout() {
+    showConfirmModal(() => {
+        // For a real application, this would involve invalidating a session on the server.
+        // Since we're using file-based storage, there's no server-side session to clear here.
+        // We can just reload the page as if logging out.
+        window.location.reload(); // Reload the page
+    }, 'Logout Confirmation', 'Are you sure you want to log out? This action does not clear server data.');
+}
+
+// --- PAGE ROUTING ---
+async function renderPage(page, preserveSearch = false) {
+    if (!preserveSearch) {
+        currentSearchTerm = ''; // Clear search term when navigating to a new page
+    }
+    currentPage = page;
+    renderSidebar(); // Re-render sidebar to update active state
+
+    // Ensure data is loaded before rendering specific pages
+    await loadAllData(); 
+
+    if (page === "dashboard") renderDashboard();
+    else if (page === "clients") renderTable("clients", ["Name", "Phone Number", "Email", "Address", "Company"]); 
+    else if (page === "income") renderTable("income", ["Date", "Category", "Amount", "Description"]); 
+    else if (page === "expenses") renderTable("expenses", ["Date", "Category", "Amount", "Description"]); 
+    else if (page === "tasks") renderTable("tasks", ["Title", "Date", "Status", "Priority", "Description", "Assign"]); 
+    else if (page === "employees") renderTable("employees", ["Name", "Phone Number", "Email", "DOB", "Address", "Position"]); 
+    else if (page === "profile") renderProfilePage(); // Render Profile page
+    else if (page === "settings") renderSettingsPage(); // Render Settings page
+}
+
+// --- INITIAL DATA LOAD ---
+async function loadAllData() {
+    await Promise.all([
+        fetchJsonData('clients'),
+        fetchJsonData('income'),
+        fetchJsonData('expenses'),
+        fetchJsonData('tasks'),
+        fetchJsonData('employees'),
+    ]);
+}
+
+// --- INITIALIZATION ---
+window.onload = async () => {
+    await loadAllData();
+    renderPage("dashboard");
+};
+
+</script>
+</body>
+</html>
